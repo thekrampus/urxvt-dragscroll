@@ -1,27 +1,38 @@
 #! perl
 
+# Author: Rob K <rkelly@cs.nmt.edu>
 # Changes the functionality of mouse-dragging to scrolling.
 # TODO: should disable selection while scrolling.
 # TODO: add inertia
 
+#:META:RESOURCE:%.button:mouse button used for scrolling, default 1 (left mouse button)
+#:META:RESOURCE:%.inertia-coefficient:coefficient of scrolling inertia per update interval, default 0.83 (must be between 0 and 1)
+#:META:RESOURCE:%.inertia-min:lower threshold to inertia in pixels, default 15
+#:META:RESOURCE:%.inertia-interval:interval by which inertia is applied in seconds, default 0.02 (a tenth of mean human reaction time)
+
 # is a drag-scroll currently occuring?
 my $dragging = 0;
 
-# a persistent buffer of the change in y-coordinate during a drag action
+# a persistent buffer of the total change in y-coordinate during a drag action
 my $drag_buffer = 0;
 
 # a persistent buffer of the last mouse coordinates
 my ($xprev, $yprev);
 
+# a persistent buffer of the last few changes in y-coordinate
+my @ybuffer;
+
 # a counter of the number of lines actually scrolled during the last drag
 my $lines_scrolled = 0;
-
 
 sub get_drag_delta {
     my ($self, $x, $y) = @_;
 
     my @delta = ($x - $xprev, $y - $yprev);
     ($xprev, $yprev) = ($x, $y);
+
+    shift @ybuffer;
+    push @ybuffer, $delta[1];
     return @delta;
 }
 
@@ -34,19 +45,36 @@ sub scroll_with_drag {
     $drag_buffer -= $self->fheight * $n_scroll;
     $self->view_start( $self->view_start - $n_scroll);
 
+    $self->refresh_check();
+
     $lines_scrolled += $self->view_start - $view_start;
 
     # warn("Scrolling by $n_scroll lines...");
     return ();
 }
 
+sub scroll_with_inertia {
+    my ($self, $inertia) = @_;
+
+    # warn("Inertia: $inertia.");
+
+    if (abs($inertia) > $self->{inertia_min}) {
+        $self->scroll_with_drag($inertia);
+        $self->{timer} = urxvt::timer
+            ->new
+            ->after( $self->{inertia_interval} )
+            ->cb(sub { $self->scroll_with_inertia($inertia * $self->{inertia_coefficient}) });
+    }
+}
+
 sub on_button_press {
     my ($self, $event) = @_;
 
-    if ($event->{button} eq 1) {
+    if ($event->{button} eq $self->{button}) {
         $dragging = 1;
         ($xprev, $yprev) = ($event->{x}, $event->{y});
         $drag_buffer = 0;
+        @ybuffer = (0, 0, 0, 0, 0);
         $lines_scrolled = 0;
         # warn("Dragging...\n");
     }
@@ -65,11 +93,17 @@ sub on_motion_notify {
 sub on_button_release {
     my ($self, $event) = @_;
 
-    if ($event->{button} eq 1) {
+    if ($event->{button} eq $self->{button}) {
         $dragging = 0;
         if ($lines_scrolled) {
             $self->selection_clear();
         }
+
+        $self->{timer} = urxvt::timer
+            ->new
+            ->after( $self->{inertia_interval} )
+            ->cb(sub { $self->scroll_with_inertia(eval join '+', @ybuffer) });
+
         # warn("Done.\n");
     }
 
@@ -77,3 +111,20 @@ sub on_button_release {
 }
 
 sub on_sel_make { return ($lines_scrolled > 0); }
+
+sub my_resource {
+    $_[0]->x_resource("%.$_[1]");
+}
+
+sub on_start {
+    my ($self) = @_;
+
+    $self->{button} = $self->my_resource("button") || 1;
+
+    my $ic = $self->my_resource("inertia-coefficient") || 0.83;
+    $self->{inertia_coefficient} = List::Util::max (List::Util::min $ic, 1), 0;
+
+    $self->{inertia_min} = $self->my_resource("inertia-min") || 10;
+
+    $self->{inertia_interval} = $self->my_resource("inertia-interval") || 0.02;
+}
