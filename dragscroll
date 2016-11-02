@@ -1,0 +1,79 @@
+#! perl
+
+# Changes the functionality of mouse-dragging to scrolling.
+# TODO: should disable selection while scrolling.
+# TODO: add inertia
+
+# is a drag-scroll currently occuring?
+my $dragging = 0;
+
+# a persistent buffer of the change in y-coordinate during a drag action
+my $drag_buffer = 0;
+
+# a persistent buffer of the last mouse coordinates
+my ($xprev, $yprev);
+
+# a counter of the number of lines actually scrolled during the last drag
+my $lines_scrolled = 0;
+
+
+sub get_drag_delta {
+    my ($self, $x, $y) = @_;
+
+    my @delta = ($x - $xprev, $y - $yprev);
+    ($xprev, $yprev) = ($x, $y);
+    return @delta;
+}
+
+sub scroll_with_drag {
+    my ($self, $dy) = @_;
+    my $view_start = $self->view_start;
+
+    $drag_buffer += $dy;
+    my $n_scroll = int $drag_buffer / $self->fheight;
+    $drag_buffer -= $self->fheight * $n_scroll;
+    $self->view_start( $self->view_start - $n_scroll);
+
+    $lines_scrolled += $self->view_start - $view_start;
+
+    # warn("Scrolling by $n_scroll lines...");
+    return ();
+}
+
+sub on_button_press {
+    my ($self, $event) = @_;
+
+    if ($event->{button} eq 1) {
+        $dragging = 1;
+        ($xprev, $yprev) = ($event->{x}, $event->{y});
+        $drag_buffer = 0;
+        $lines_scrolled = 0;
+        # warn("Dragging...\n");
+    }
+}
+
+sub on_motion_notify {
+    my ($self, $event) = @_;
+
+    if ($dragging) {
+        my ($dx, $dy) = $self->get_drag_delta($event->{x}, $event->{y});
+        $self->scroll_with_drag($dy);
+        # warn("delta ($dx, $dy)");
+    }
+}
+
+sub on_button_release {
+    my ($self, $event) = @_;
+
+    if ($event->{button} eq 1) {
+        $dragging = 0;
+        if ($lines_scrolled) {
+            $self->selection_clear();
+        }
+        # warn("Done.\n");
+    }
+
+    return ();
+}
+
+sub on_sel_make { return ($lines_scrolled > 0); }
