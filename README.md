@@ -9,9 +9,9 @@ Also, scrolling "inertia" is a planned feature.
 
 ---
 
-To install, `clone` this repository and either
+To install, `clone` this repository and either add `dragscroll` to the key `URxvt.perl-ext-common` in your `.Xresources` file and
 
-`$ sudo cp dragscroll /usr/lib/urxvt/perl/`
+`$ sudo ln -s dragscroll /usr/lib/urxvt/perl/dragscroll`
 
 or
 
